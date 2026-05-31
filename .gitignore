@@ -1,0 +1,39 @@
+### Node / JS
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-lock.yaml
+package-lock.json
+
+### Env
+.env
+.env.*
+apps/api/.env
+apps/web/.env.local
+
+### Next / build
+.next/
+out/
+dist/
+build/
+
+### Prisma local DB
+apps/api/prisma/dev.db
+
+### Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+### Logs
+logs/
+npm-debug.log*
+
+### Misc
+*.tgz
+*.local
+.cache/

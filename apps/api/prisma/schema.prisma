@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Teacher {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  passwordHash String
+  fullName     String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Student {
+  id          Int        @id @default(autoincrement())
+  fullName    String
+  rollNumber  String     @unique
+  gradeLevel  String
+  section     String
+  joinedAt    DateTime   @default(now())
+  marks       Mark[]
+  notes       Note[]
+  homeworks   Homework[]
+  attendance  Attendance[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Mark {
+  id        Int      @id @default(autoincrement())
+  studentId Int
+  subject   String
+  score     Float
+  maxScore  Float
+  testDate  DateTime
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([studentId])
+}
+
+model Note {
+  id        Int      @id @default(autoincrement())
+  studentId Int
+  content   String
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([studentId])
+}
+
+model Homework {
+  id          Int            @id @default(autoincrement())
+  studentId   Int
+  title       String
+  description String
+  dueDate     DateTime
+  status      HomeworkStatus @default(PENDING)
+  student     Student        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([studentId])
+}
+
+model Attendance {
+  id        Int      @id @default(autoincrement())
+  studentId Int
+  date      DateTime
+  present   Boolean
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([studentId, date])
+  @@index([studentId])
+}
+
+enum HomeworkStatus {
+  PENDING
+  COMPLETED
+  OVERDUE
+}

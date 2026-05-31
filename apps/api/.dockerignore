@@ -1,0 +1,8 @@
+node_modules
+.next
+dist
+.env
+apps/api/prisma/dev.db
+.git
+npm-debug.log
+package-lock.json

@@ -1,0 +1,32 @@
+{
+  "name": "student-performance-mgmt",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Student performance management full-stack app",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n API,WEB -c cyan,magenta \"npm run dev -w api\" \"npm run dev -w web\"",
+    "dev:web": "npm run dev -w web",
+    "dev:api": "npm run dev -w api",
+    "build": "npm run build -w api && npm run build -w web",
+    "start": "npm run start -w api",
+    "lint": "npm run lint -w web && npm run lint -w api",
+    "db:generate": "npm run db:generate -w api",
+    "db:migrate": "npm run db:migrate -w api",
+    "db:seed": "npm run db:seed -w api"
+  },
+  "keywords": [
+    "student",
+    "management",
+    "nextjs",
+    "express"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "devDependencies": {
+    "concurrently": "^10.0.0"
+  }
+}
