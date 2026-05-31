@@ -18,7 +18,7 @@ import {
   YAxis,
 } from "recharts";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/$/, "");
 const HOMEWORK_COLORS = ["#0a6c74", "#e67e22", "#d97706"];
 
 type StudentLite = {
