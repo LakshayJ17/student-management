@@ -14,6 +14,11 @@ const createStudentSchema = z.object({
   section: z.string().min(1).max(10),
 });
 
+const updateStudentSchema = z.object({
+  fullName: z.string().min(2).max(100),
+  rollNumber: z.string().min(1).max(30),
+});
+
 const addMarkSchema = z.object({
   subject: z.string().min(2).max(60),
   score: z.number().nonnegative(),
@@ -44,6 +49,30 @@ const optionalInstructionSchema = z.object({
   instruction: z.string().min(1).max(700).optional(),
 });
 
+const updateMarkSchema = z.object({
+  subject: z.string().min(2).max(60),
+  score: z.number().nonnegative(),
+  maxScore: z.number().positive(),
+  testDate: z.string().datetime().optional(),
+});
+
+const updateNoteSchema = addNoteSchema;
+
+const updateHomeworkSchema = z.object({
+  title: z.string().min(2).max(120),
+  description: z.string().min(3).max(1000),
+  dueDate: z.string().datetime(),
+  status: z.nativeEnum(HomeworkStatus).optional(),
+});
+
+const getLocalDayRange = (date = new Date()) => {
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+
+  return { start, end };
+};
+
 export const studentsRouter = Router();
 
 studentsRouter.get("/", async (_req, res) => {
@@ -67,10 +96,15 @@ studentsRouter.get("/analytics/class", async (_req, res) => {
     include: {
       marks: true,
       attendance: true,
+      homeworks: true,
     },
+    orderBy: { fullName: "asc" },
   });
 
-  const cards = students.map((student) => {
+  const now = new Date();
+  const { start, end } = getLocalDayRange(now);
+
+  const studentPerformance = students.map((student) => {
     const stats = buildStudentStats(student.marks);
     const attendanceRate =
       student.attendance.length === 0
@@ -78,25 +112,77 @@ studentsRouter.get("/analytics/class", async (_req, res) => {
         : (student.attendance.filter((entry) => entry.present).length /
             student.attendance.length) *
           100;
+    const missedHomeworkCount = student.homeworks.filter(
+      (homework) => homework.dueDate < now && homework.status !== HomeworkStatus.COMPLETED,
+    ).length;
 
     return {
       studentId: student.id,
       name: student.fullName,
+      rollNumber: student.rollNumber,
       average: Number(stats.overallAverage.toFixed(2)),
       consistency: Number(stats.consistencyScore.toFixed(2)),
       attendanceRate: Number(attendanceRate.toFixed(2)),
+      missedHomeworkCount,
     };
   });
 
-  const topPerformers = cards.slice().sort((a, b) => b.average - a.average).slice(0, 5);
+  const topPerformers = studentPerformance.slice().sort((a, b) => b.average - a.average).slice(0, 5);
+  const absentToday = await prisma.attendance.findMany({
+    where: {
+      date: {
+        gte: start,
+        lt: end,
+      },
+      present: false,
+    },
+    include: {
+      student: {
+        select: {
+          id: true,
+          fullName: true,
+          rollNumber: true,
+        },
+      },
+    },
+    orderBy: { date: "asc" },
+  });
+
+  const missedHomework = students
+    .flatMap((student) =>
+      student.homeworks
+        .filter((homework) => homework.dueDate < now && homework.status !== HomeworkStatus.COMPLETED)
+        .map((homework) => ({
+          homeworkId: homework.id,
+          studentId: student.id,
+          studentName: student.fullName,
+          rollNumber: student.rollNumber,
+          title: homework.title,
+          dueDate: homework.dueDate,
+          status: homework.status,
+        })),
+    )
+    .sort((left, right) => left.dueDate.getTime() - right.dueDate.getTime());
 
   return res.json({
     classAverage:
-      cards.length === 0
+      studentPerformance.length === 0
         ? 0
-        : Number((cards.reduce((acc, card) => acc + card.average, 0) / cards.length).toFixed(2)),
+        : Number(
+            (
+              studentPerformance.reduce((acc, card) => acc + card.average, 0) /
+              studentPerformance.length
+            ).toFixed(2),
+          ),
     topPerformers,
-    cards,
+    studentPerformance,
+    absentToday: absentToday.map((entry) => ({
+      studentId: entry.studentId,
+      name: entry.student.fullName,
+      rollNumber: entry.student.rollNumber,
+      date: entry.date,
+    })),
+    missedHomework,
   });
 });
 
@@ -228,6 +314,55 @@ studentsRouter.post("/", requireTeacherAuth, async (req, res) => {
   }
 });
 
+studentsRouter.put("/:id", requireTeacherAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const parsed = updateStudentSchema.safeParse(req.body);
+
+  if (Number.isNaN(id)) {
+    return res.status(400).json({ message: "Invalid student id" });
+  }
+
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Invalid student payload" });
+  }
+
+  const student = await prisma.student.findUnique({ where: { id } });
+  if (!student) {
+    return res.status(404).json({ message: "Student not found" });
+  }
+
+  try {
+    const updated = await prisma.student.update({
+      where: { id },
+      data: {
+        fullName: parsed.data.fullName,
+        rollNumber: parsed.data.rollNumber,
+      },
+    });
+
+    return res.json(updated);
+  } catch {
+    return res.status(409).json({ message: "Roll number already exists" });
+  }
+});
+
+studentsRouter.delete("/:id", requireTeacherAuth, async (req, res) => {
+  const id = Number(req.params.id);
+
+  if (Number.isNaN(id)) {
+    return res.status(400).json({ message: "Invalid student id" });
+  }
+
+  const student = await prisma.student.findUnique({ where: { id } });
+  if (!student) {
+    return res.status(404).json({ message: "Student not found" });
+  }
+
+  await prisma.student.delete({ where: { id } });
+
+  return res.status(204).send();
+});
+
 studentsRouter.post("/:id/marks", requireTeacherAuth, async (req, res) => {
   const id = Number(req.params.id);
   const parsed = addMarkSchema.safeParse(req.body);
@@ -258,6 +393,67 @@ studentsRouter.post("/:id/marks", requireTeacherAuth, async (req, res) => {
   return res.status(201).json(mark);
 });
 
+studentsRouter.put("/:id/marks/:markId", requireTeacherAuth, async (req, res) => {
+  const studentId = Number(req.params.id);
+  const markId = Number(req.params.markId);
+  const parsed = updateMarkSchema.safeParse(req.body);
+
+  if (Number.isNaN(studentId) || Number.isNaN(markId)) {
+    return res.status(400).json({ message: "Invalid mark id" });
+  }
+
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Invalid marks payload" });
+  }
+
+  const mark = await prisma.mark.findFirst({
+    where: {
+      id: markId,
+      studentId,
+    },
+  });
+
+  if (!mark) {
+    return res.status(404).json({ message: "Mark not found" });
+  }
+
+  const updated = await prisma.mark.update({
+    where: { id: markId },
+    data: {
+      subject: parsed.data.subject,
+      score: parsed.data.score,
+      maxScore: parsed.data.maxScore,
+      testDate: parsed.data.testDate ? new Date(parsed.data.testDate) : mark.testDate,
+    },
+  });
+
+  return res.json(updated);
+});
+
+studentsRouter.delete("/:id/marks/:markId", requireTeacherAuth, async (req, res) => {
+  const studentId = Number(req.params.id);
+  const markId = Number(req.params.markId);
+
+  if (Number.isNaN(studentId) || Number.isNaN(markId)) {
+    return res.status(400).json({ message: "Invalid mark id" });
+  }
+
+  const mark = await prisma.mark.findFirst({
+    where: {
+      id: markId,
+      studentId,
+    },
+  });
+
+  if (!mark) {
+    return res.status(404).json({ message: "Mark not found" });
+  }
+
+  await prisma.mark.delete({ where: { id: markId } });
+
+  return res.status(204).send();
+});
+
 studentsRouter.post("/:id/notes", requireTeacherAuth, async (req, res) => {
   const id = Number(req.params.id);
   const parsed = addNoteSchema.safeParse(req.body);
@@ -283,6 +479,62 @@ studentsRouter.post("/:id/notes", requireTeacherAuth, async (req, res) => {
   });
 
   return res.status(201).json(note);
+});
+
+studentsRouter.put("/:id/notes/:noteId", requireTeacherAuth, async (req, res) => {
+  const studentId = Number(req.params.id);
+  const noteId = Number(req.params.noteId);
+  const parsed = updateNoteSchema.safeParse(req.body);
+
+  if (Number.isNaN(studentId) || Number.isNaN(noteId)) {
+    return res.status(400).json({ message: "Invalid note id" });
+  }
+
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Invalid note payload" });
+  }
+
+  const note = await prisma.note.findFirst({
+    where: {
+      id: noteId,
+      studentId,
+    },
+  });
+
+  if (!note) {
+    return res.status(404).json({ message: "Note not found" });
+  }
+
+  const updated = await prisma.note.update({
+    where: { id: noteId },
+    data: { content: parsed.data.content },
+  });
+
+  return res.json(updated);
+});
+
+studentsRouter.delete("/:id/notes/:noteId", requireTeacherAuth, async (req, res) => {
+  const studentId = Number(req.params.id);
+  const noteId = Number(req.params.noteId);
+
+  if (Number.isNaN(studentId) || Number.isNaN(noteId)) {
+    return res.status(400).json({ message: "Invalid note id" });
+  }
+
+  const note = await prisma.note.findFirst({
+    where: {
+      id: noteId,
+      studentId,
+    },
+  });
+
+  if (!note) {
+    return res.status(404).json({ message: "Note not found" });
+  }
+
+  await prisma.note.delete({ where: { id: noteId } });
+
+  return res.status(204).send();
 });
 
 studentsRouter.post("/:id/homeworks", requireTeacherAuth, async (req, res) => {
@@ -312,6 +564,67 @@ studentsRouter.post("/:id/homeworks", requireTeacherAuth, async (req, res) => {
   });
 
   return res.status(201).json(homework);
+});
+
+studentsRouter.put("/:id/homeworks/:homeworkId", requireTeacherAuth, async (req, res) => {
+  const studentId = Number(req.params.id);
+  const homeworkId = Number(req.params.homeworkId);
+  const parsed = updateHomeworkSchema.safeParse(req.body);
+
+  if (Number.isNaN(studentId) || Number.isNaN(homeworkId)) {
+    return res.status(400).json({ message: "Invalid homework id" });
+  }
+
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Invalid homework payload" });
+  }
+
+  const homework = await prisma.homework.findFirst({
+    where: {
+      id: homeworkId,
+      studentId,
+    },
+  });
+
+  if (!homework) {
+    return res.status(404).json({ message: "Homework not found" });
+  }
+
+  const updated = await prisma.homework.update({
+    where: { id: homeworkId },
+    data: {
+      title: parsed.data.title,
+      description: parsed.data.description,
+      dueDate: new Date(parsed.data.dueDate),
+      status: parsed.data.status ?? homework.status,
+    },
+  });
+
+  return res.json(updated);
+});
+
+studentsRouter.delete("/:id/homeworks/:homeworkId", requireTeacherAuth, async (req, res) => {
+  const studentId = Number(req.params.id);
+  const homeworkId = Number(req.params.homeworkId);
+
+  if (Number.isNaN(studentId) || Number.isNaN(homeworkId)) {
+    return res.status(400).json({ message: "Invalid homework id" });
+  }
+
+  const homework = await prisma.homework.findFirst({
+    where: {
+      id: homeworkId,
+      studentId,
+    },
+  });
+
+  if (!homework) {
+    return res.status(404).json({ message: "Homework not found" });
+  }
+
+  await prisma.homework.delete({ where: { id: homeworkId } });
+
+  return res.status(204).send();
 });
 
 studentsRouter.patch("/homeworks/:homeworkId", async (req, res) => {

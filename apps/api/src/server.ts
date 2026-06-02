@@ -25,7 +25,7 @@ app.use(
       callback(new Error(`Origin ${origin} not allowed by CORS`));
     },
     credentials: true,
-    methods: ["GET", "POST", "PATCH"],
+    methods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
   }),
 );
 app.use(helmet());
